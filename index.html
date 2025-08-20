@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DOOM-like Web Raycaster</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #111;
+        color: #eee;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu,
+          Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji",
+          "Segoe UI Emoji";
+      }
+      #hud {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        right: 12px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        pointer-events: none;
+      }
+      .chip {
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        backdrop-filter: blur(6px);
+      }
+      #help {
+        position: fixed;
+        bottom: 12px;
+        left: 12px;
+        right: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      #help .chip {
+        pointer-events: auto;
+      }
+      #container {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+      }
+      #game {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(0, 0, 0, 0.35),
+          rgba(0, 0, 0, 0.8)
+        );
+        color: #fff;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        text-align: center;
+      }
+      #overlay.hidden {
+        display: none;
+      }
+      #overlay .card {
+        max-width: 640px;
+        padding: 24px;
+        border-radius: 16px;
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(8px);
+      }
+      #overlay button {
+        pointer-events: auto;
+        margin-top: 12px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: #1e1e1e;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #minimap {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        width: 160px;
+        height: 160px;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(0, 0, 0, 0.35);
+      }
+      canvas {
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container">
+      <canvas id="game"></canvas>
+    </div>
+
+    <div id="hud">
+      <div class="chip" id="fps">FPS: --</div>
+      <div class="chip">
+        WASD para moverte · Mouse para mirar · Shift para correr · Esc para
+        pausar
+      </div>
+    </div>
+    <canvas id="minimap" width="160" height="160"></canvas>
+
+    <div id="help">
+      <div class="chip">
+        Consejo: si el mouse no gira, haz clic en "Iniciar" para activar Pointer
+        Lock.
+      </div>
+    </div>
+
+    <div id="overlay">
+      <div class="card">
+        <h2>DOOM‑like Web (Raycaster)</h2>
+        <p>
+          Pequeño clon estilo DOOM/Wolf3D con raycasting en Canvas 2D. No usa
+          assets de DOOM: todo es generado.
+        </p>
+        <p>
+          Controles: <strong>WASD</strong> moverse ·
+          <strong>Mouse</strong> mirar · <strong>Shift</strong> correr ·
+          <strong>R</strong> reiniciar · <strong>Esc</strong> liberar puntero.
+        </p>
+        <button id="startBtn">Iniciar</button>
+      </div>
+    </div>
+
+    <script>
+      // ===== Config =====
+      const FOV = Math.PI / 2; // 90° campo de visión (Quake-like)
+      const MOVE_SPEED = 3.2;
+      const RUN_MULT = 1.8;
+      const ROT_SPEED_MOUSE = 0.0022; // yaw
+      const PITCH_SPEED_MOUSE = 0.0016; // pitch
+      const PITCH_LIMIT = Math.PI / 6; // ~30°
+      const HEAD_BOB_FREQ = 7.5; // Hz aprox
+      const HEAD_BOB_AMP = 6; // píxeles
+
+      // Colores de respaldo si no hay textura
+      const WALL_COLORS = [
+        "#000000",
+        "#c0392b",
+        "#27ae60",
+        "#2980b9",
+        "#8e44ad",
+        "#f39c12",
+      ];
+
+      // Mapa 2D (grid de celdas). 0 = vacío; >0 = pared (tipo/color)
+      const MAP_W = 16,
+        MAP_H = 16;
+      const MAP = [
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 1,
+        1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 1, 1, 0, 3, 0, 2, 2, 2, 0,
+        0, 5, 5, 5, 0, 4, 0, 1, 1, 0, 3, 0, 2, 0, 2, 0, 0, 5, 0, 5, 0, 4, 0, 1,
+        1, 0, 3, 0, 2, 0, 2, 0, 0, 5, 0, 5, 0, 4, 0, 1, 1, 0, 0, 0, 2, 2, 2, 0,
+        0, 5, 5, 5, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+      ];
+
+      const TEX_SIZE = 64;
+      const wallTextures = []; // por id de celda (>0)
+      const weaponTexture = { img: null };
+
+      function makeChecker(a, b) {
+        const c = document.createElement("canvas");
+        c.width = c.height = TEX_SIZE;
+        const g = c.getContext("2d");
+        for (let y = 0; y < TEX_SIZE; y++)
+          for (let x = 0; x < TEX_SIZE; x++) {
+            const on = (((x >> 3) + (y >> 3)) & 1) === 0;
+            g.fillStyle = on ? a : b;
+            g.fillRect(x, y, 1, 1);
+          }
+        return c;
+      }
+
+      function at(x, y) {
+        if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return 1; // borde como pared
+        return MAP[y * MAP_W + x];
+      }
+
+      // ===== Canvas setup =====
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const minimap = document.getElementById("minimap");
+      const mctx = minimap.getContext("2d");
+
+      function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      // ===== Player =====
+      const player = {
+        x: 3.5,
+        y: 3.5,
+        dir: Math.PI * 0.1, // ángulo mirando
+        velX: 0,
+        velY: 0,
+      };
+
+      // ===== Input =====
+      const keys = new Set();
+      window.addEventListener("keydown", (e) => {
+        keys.add(e.code);
+        if (e.code === "KeyR") resetPlayer();
+      });
+      window.addEventListener("keyup", (e) => keys.delete(e.code));
+
+      // Pointer lock para mirar con mouse
+      const overlay = document.getElementById("overlay");
+      const startBtn = document.getElementById("startBtn");
+      startBtn.addEventListener("click", () => {
+        canvas.requestPointerLock();
+      });
+      document.addEventListener("pointerlockchange", () => {
+        const locked = document.pointerLockElement === canvas;
+        overlay.classList.toggle("hidden", locked);
+      });
+      window.addEventListener("mousemove", (e) => {
+        if (document.pointerLockElement === canvas) {
+          player.dir += e.movementX * ROT_SPEED_MOUSE;
+        }
+      });
+
+      function resetPlayer() {
+        player.x = 3.5;
+        player.y = 3.5;
+        player.dir = Math.PI * 0.1;
+      }
+
+      // ===== Raycasting =====
+      function castAndDraw() {
+        const w = canvas.width,
+          h = canvas.height;
+
+        // cielo y piso
+        const skyGrad = ctx.createLinearGradient(0, 0, 0, h / 2);
+        skyGrad.addColorStop(0, "#1a1f2e");
+        skyGrad.addColorStop(1, "#2b3a55");
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, w, h / 2);
+        const floorGrad = ctx.createLinearGradient(0, h / 2, 0, h);
+        floorGrad.addColorStop(0, "#2b2b2b");
+        floorGrad.addColorStop(1, "#0e0e0e");
+        ctx.fillStyle = floorGrad;
+        ctx.fillRect(0, h / 2, w, h / 2);
+
+        // parámetros de cámara
+        const dirX = Math.cos(player.dir),
+          dirY = Math.sin(player.dir);
+        const planeMag = Math.tan(FOV / 2);
+        const planeX = -dirY * planeMag;
+        const planeY = dirX * planeMag;
+
+        // ray per column
+        for (let x = 0; x < w; x++) {
+          const cameraX = (2 * x) / w - 1; // -1..1
+          const rayDirX = dirX + planeX * cameraX;
+          const rayDirY = dirY + planeY * cameraX;
+
+          // mapa grid
+          let mapX = Math.floor(player.x);
+          let mapY = Math.floor(player.y);
+
+          // longitud de rayo a la próxima x/y
+          const deltaDistX = Math.abs(1 / (rayDirX || 1e-6));
+          const deltaDistY = Math.abs(1 / (rayDirY || 1e-6));
+
+          let stepX, stepY;
+          let sideDistX, sideDistY;
+
+          if (rayDirX < 0) {
+            stepX = -1;
+            sideDistX = (player.x - mapX) * deltaDistX;
+          } else {
+            stepX = 1;
+            sideDistX = (mapX + 1.0 - player.x) * deltaDistX;
+          }
+          if (rayDirY < 0) {
+            stepY = -1;
+            sideDistY = (player.y - mapY) * deltaDistY;
+          } else {
+            stepY = 1;
+            sideDistY = (mapY + 1.0 - player.y) * deltaDistY;
+          }
+
+          let hit = 0,
+            side = 0,
+            texId = 1;
+          // DDA
+          for (let i = 0; i < 64; i++) {
+            if (sideDistX < sideDistY) {
+              sideDistX += deltaDistX;
+              mapX += stepX;
+              side = 0;
+            } else {
+              sideDistY += deltaDistY;
+              mapY += stepY;
+              side = 1;
+            }
+            hit = at(mapX, mapY);
+            if (hit > 0) {
+              texId = hit;
+              break;
+            }
+          }
+
+          // distancia perpendicular para evitar fisheye
+          let perpWallDist;
+          if (side === 0)
+            perpWallDist =
+              (mapX - player.x + (1 - stepX) / 2) / (rayDirX || 1e-6);
+          else
+            perpWallDist =
+              (mapY - player.y + (1 - stepY) / 2) / (rayDirY || 1e-6);
+
+          // altura de la línea
+          const lineHeight = Math.max(1, Math.floor(h / perpWallDist));
+          let drawStart = -lineHeight / 2 + h / 2;
+          if (drawStart < 0) drawStart = 0;
+          let drawEnd = lineHeight / 2 + h / 2;
+          if (drawEnd >= h) drawEnd = h - 1;
+
+          // color y sombreado
+          const base = WALL_COLORS[texId % WALL_COLORS.length] || "#aaa";
+          // convertir hex a rgb
+          const rgb = hexToRgb(base);
+          const shade = 1 / (1 + perpWallDist * perpWallDist * 0.15);
+          const dim = side ? 0.85 : 1.0; // lado Y un poco más oscuro
+          const r = Math.min(255, Math.floor(rgb.r * shade * dim));
+          const g = Math.min(255, Math.floor(rgb.g * shade * dim));
+          const b = Math.min(255, Math.floor(rgb.b * shade * dim));
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillRect(x, drawStart, 1, drawEnd - drawStart);
+
+          // pseudo-textura: franjas sutiles
+          if (((mapX + mapY) & 1) === 0 && x % 3 === 0) {
+            ctx.fillStyle = `rgba(0,0,0,0.15)`;
+            ctx.fillRect(x, drawStart, 1, drawEnd - drawStart);
+          }
+        }
+      }
+
+      function hexToRgb(hex) {
+        const v = hex.replace("#", "");
+        return {
+          r: parseInt(v.substring(0, 2), 16),
+          g: parseInt(v.substring(2, 4), 16),
+          b: parseInt(v.substring(4, 6), 16),
+        };
+      }
+
+      // ===== Movimiento y colisiones =====
+      function tryMove(nx, ny) {
+        const radius = 0.2; // radio de colisión
+        // comprobar 4 esquinas alrededor del círculo
+        if (at(Math.floor(nx - radius), Math.floor(ny - radius)) > 0)
+          return false;
+        if (at(Math.floor(nx + radius), Math.floor(ny - radius)) > 0)
+          return false;
+        if (at(Math.floor(nx - radius), Math.floor(ny + radius)) > 0)
+          return false;
+        if (at(Math.floor(nx + radius), Math.floor(ny + radius)) > 0)
+          return false;
+        player.x = nx;
+        player.y = ny;
+        return true;
+      }
+
+      function update(dt) {
+        const forward =
+          keys.has("KeyW") || keys.has("ArrowUp")
+            ? 1
+            : keys.has("KeyS") || keys.has("ArrowDown")
+            ? -1
+            : 0;
+        const strafe =
+          keys.has("KeyD") || keys.has("ArrowRight")
+            ? 1
+            : keys.has("KeyA") || keys.has("ArrowLeft")
+            ? -1
+            : 0;
+        const speed =
+          MOVE_SPEED *
+          (keys.has("ShiftLeft") || keys.has("ShiftRight") ? RUN_MULT : 1);
+
+        const dirX = Math.cos(player.dir),
+          dirY = Math.sin(player.dir);
+        const moveX = (dirX * forward + -dirY * strafe) * speed * dt;
+        const moveY = (dirY * forward + dirX * strafe) * speed * dt;
+
+        // intentar mover en dos ejes para deslizar en paredes
+        if (!tryMove(player.x + moveX, player.y)) {
+          tryMove(player.x, player.y + moveY);
+        } else {
+          tryMove(player.x, player.y + moveY);
+        }
+      }
+
+      // ===== Minimap =====
+      function drawMinimap() {
+        const s = minimap.width / MAP_W;
+        mctx.clearRect(0, 0, minimap.width, minimap.height);
+        for (let y = 0; y < MAP_H; y++) {
+          for (let x = 0; x < MAP_W; x++) {
+            const v = at(x, y);
+            mctx.fillStyle =
+              v > 0 ? "rgba(255,255,255,.7)" : "rgba(255,255,255,.07)";
+            mctx.fillRect(x * s, y * s, s, s);
+          }
+        }
+        // player
+        mctx.fillStyle = "#00d4ff";
+        mctx.beginPath();
+        mctx.arc(player.x * s, player.y * s, 3, 0, Math.PI * 2);
+        mctx.fill();
+
+        // direction
+        const dx = Math.cos(player.dir),
+          dy = Math.sin(player.dir);
+        mctx.strokeStyle = "#00d4ff";
+        mctx.beginPath();
+        mctx.moveTo(player.x * s, player.y * s);
+        mctx.lineTo((player.x + dx * 0.8) * s, (player.y + dy * 0.8) * s);
+        mctx.stroke();
+      }
+
+      // ===== Loop =====
+      let last = performance.now();
+      let fpsEl = document.getElementById("fps");
+      let fpsAcc = 0,
+        fpsCount = 0,
+        fpsDisp = 0;
+
+      function frame(now) {
+        const dt = Math.min(0.05, (now - last) / 1000); // clamp dt
+        last = now;
+
+        update(dt);
+        castAndDraw();
+        drawMinimap();
+
+        // fps avg ~ each 250ms
+        fpsAcc += 1 / dt;
+        fpsCount++;
+        if (now % 250 < 16) {
+          fpsDisp = Math.round(fpsAcc / Math.max(1, fpsCount));
+          fpsAcc = 0;
+          fpsCount = 0;
+        }
+        fpsEl.textContent = `FPS: ${fpsDisp}`;
+
+        requestAnimationFrame(frame);
+      }
+
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>
