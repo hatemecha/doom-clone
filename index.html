@@ -9,14 +9,14 @@
       body {
         height: 100%;
         margin: 0;
-        background: #111;
+        background: #000;
         color: #eee;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu,
           Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji",
           "Segoe UI Emoji";
       }
       #hud {
-        position: fixed;
+        position: absolute;
         top: 12px;
         left: 12px;
         right: 12px;
@@ -34,7 +34,7 @@
         backdrop-filter: blur(6px);
       }
       #help {
-        position: fixed;
+        position: absolute;
         bottom: 12px;
         left: 12px;
         right: 12px;
@@ -47,17 +47,22 @@
       }
       #container {
         position: fixed;
-        inset: 0;
-        display: grid;
-        place-items: center;
+        top: 50%;
+        left: 50%;
+        width: 800px;
+        height: 600px;
+        transform: translate(-50%, -50%);
+        border: 2px solid #fff;
+        background: #000;
+        overflow: hidden;
       }
       #game {
-        width: 100vw;
-        height: 100vh;
+        width: 100%;
+        height: 100%;
         display: block;
       }
       #overlay {
-        position: fixed;
+        position: absolute;
         inset: 0;
         display: grid;
         place-items: center;
@@ -94,7 +99,7 @@
         cursor: pointer;
       }
       #minimap {
-        position: fixed;
+        position: absolute;
         top: 12px;
         right: 12px;
         width: 160px;
@@ -105,7 +110,7 @@
         background: rgba(0, 0, 0, 0.35);
       }
       #weaponHud {
-        position: fixed;
+        position: absolute;
         bottom: 0;
         left: 50%;
         transform: translateX(-50%);
@@ -120,48 +125,47 @@
   </head>
   <body>
     <div id="container">
-      <canvas id="game"></canvas>
-    </div>
+      <canvas id="game" width="800" height="600"></canvas>
+      <canvas id="weaponHud" width="320" height="100"></canvas>
 
-    <canvas id="weaponHud" width="320" height="100"></canvas>
-
-    <div id="hud">
-      <div class="chip" id="fps">FPS: --</div>
-      <div class="chip">
-        WASD para moverte · Mouse para mirar · Shift para correr · Esc para
-        pausar
+      <div id="hud">
+        <div class="chip" id="fps">FPS: --</div>
+        <div class="chip">
+          WASD para moverte · Mouse para mirar · Shift para correr · Esc para
+          pausar
+        </div>
       </div>
-    </div>
-    <canvas id="minimap" width="160" height="160"></canvas>
+      <canvas id="minimap" width="160" height="160"></canvas>
 
-    <div id="help">
-      <div class="chip">
-        Consejo: si el mouse no gira, haz clic en "Iniciar" para activar Pointer
-        Lock.
+      <div id="help">
+        <div class="chip">
+          Consejo: si el mouse no gira, haz clic en "Iniciar" para activar Pointer
+          Lock.
+        </div>
       </div>
-    </div>
 
-    <div id="overlay">
-      <div class="card">
-        <h2>DOOM‑like Web (Raycaster)</h2>
-        <p>
-          Pequeño clon estilo DOOM/Wolf3D con raycasting en Canvas 2D. No usa
-          assets de DOOM: todo es generado.
-        </p>
-        <p>
-          Controles: <strong>WASD</strong> moverse ·
-          <strong>Mouse</strong> mirar · <strong>Shift</strong> correr ·
-          <strong>R</strong> reiniciar · <strong>Esc</strong> liberar puntero.
-        </p>
-          <label>
-            Mapa:
-            <select id="mapSelect"></select>
-          </label>
-          <label>
-            FOV: <span id="fovValue">90</span>°
-            <input id="fovRange" type="range" min="60" max="120" value="90" />
-          </label>
-          <button id="startBtn">Iniciar</button>
+      <div id="overlay">
+        <div class="card">
+          <h2>DOOM‑like Web (Raycaster)</h2>
+          <p>
+            Pequeño clon estilo DOOM/Wolf3D con raycasting en Canvas 2D. No usa
+            assets de DOOM: todo es generado.
+          </p>
+          <p>
+            Controles: <strong>WASD</strong> moverse ·
+            <strong>Mouse</strong> mirar · <strong>Shift</strong> correr ·
+            <strong>R</strong> reiniciar · <strong>Esc</strong> liberar puntero.
+          </p>
+            <label>
+              Mapa:
+              <select id="mapSelect"></select>
+            </label>
+            <label>
+              FOV: <span id="fovValue">90</span>°
+              <input id="fovRange" type="range" min="60" max="120" value="90" />
+            </label>
+            <button id="startBtn">Iniciar</button>
+        </div>
       </div>
     </div>
 
@@ -222,8 +226,8 @@
       const mctx = minimap.getContext("2d");
 
       function resize() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        canvas.width = 800;
+        canvas.height = 600;
       }
       window.addEventListener("resize", resize);
       resize();
