@@ -104,6 +104,15 @@
         border: 1px solid rgba(255, 255, 255, 0.12);
         background: rgba(0, 0, 0, 0.35);
       }
+      #weaponHud {
+        position: fixed;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 320px;
+        height: 100px;
+        pointer-events: none;
+      }
       canvas {
         image-rendering: pixelated;
       }
@@ -113,6 +122,8 @@
     <div id="container">
       <canvas id="game"></canvas>
     </div>
+
+    <canvas id="weaponHud" width="320" height="100"></canvas>
 
     <div id="hud">
       <div class="chip" id="fps">FPS: --</div>
@@ -157,6 +168,7 @@
     <script>
       // ===== Config =====
       let FOV = Math.PI / 2; // 90° campo de visión (Quake-like)
+      let baseFOV = FOV;
       const MOVE_SPEED = 3.2;
       const RUN_MULT = 1.8;
       const ROT_SPEED_MOUSE = 0.0022; // yaw
@@ -224,14 +236,71 @@
         velX: 0,
         velY: 0,
       };
+      // ===== Weapons =====
+      const weapons = [
+        { name: "Puños", damage: 5, range: 1, color: "#999" },
+        { name: "Pistola", damage: 10, range: 6, color: "#ccc" },
+        { name: "Escopeta", damage: 25, range: 5, color: "#b5651d" },
+        { name: "Sniper", damage: 50, range: 20, color: "#3af", zoomFOV: Math.PI / 8 },
+      ];
+      let currentWeapon = 0;
+      let zoomed = false;
+
+      const weaponCanvas = document.getElementById("weaponHud");
+      const wctx = weaponCanvas.getContext("2d");
+
+      function drawWeaponHUD() {
+        const w = weaponCanvas.width,
+          h = weaponCanvas.height;
+        wctx.clearRect(0, 0, w, h);
+        wctx.fillStyle = "rgba(0,0,0,0.5)";
+        wctx.fillRect(0, 0, w, h);
+        const weapon = weapons[currentWeapon];
+        wctx.fillStyle = weapon.color;
+        wctx.fillRect(w / 2 - 40, h - 80, 80, 80);
+        wctx.fillStyle = "#fff";
+        wctx.textAlign = "center";
+        wctx.font = "14px sans-serif";
+        wctx.fillText(weapon.name, w / 2, 20);
+      }
+
+      drawWeaponHUD();
 
       // ===== Input =====
       const keys = new Set();
       window.addEventListener("keydown", (e) => {
         keys.add(e.code);
         if (e.code === "KeyR") resetPlayer();
+        if (e.code === "Digit0") {
+          currentWeapon = 0;
+          zoomed = false;
+          FOV = baseFOV;
+        }
+        if (e.code === "Digit1") {
+          currentWeapon = 1;
+          zoomed = false;
+          FOV = baseFOV;
+        }
+        if (e.code === "Digit2") {
+          currentWeapon = 2;
+          zoomed = false;
+          FOV = baseFOV;
+        }
+        if (e.code === "Digit3") {
+          currentWeapon = 3;
+          zoomed = false;
+          FOV = baseFOV;
+        }
       });
       window.addEventListener("keyup", (e) => keys.delete(e.code));
+
+      window.addEventListener("wheel", (e) => {
+        currentWeapon =
+          (currentWeapon + (e.deltaY > 0 ? 1 : -1) + weapons.length) %
+          weapons.length;
+        zoomed = false;
+        FOV = baseFOV;
+      });
 
       // Pointer lock para mirar con mouse
       const overlay = document.getElementById("overlay");
@@ -275,9 +344,23 @@
         overlay.classList.toggle("hidden", locked);
       });
       fovRange.addEventListener("input", () => {
-        FOV = (fovRange.value * Math.PI) / 180;
+        baseFOV = (fovRange.value * Math.PI) / 180;
+        if (!zoomed) FOV = baseFOV;
         fovValue.textContent = fovRange.value;
       });
+      window.addEventListener("mousedown", (e) => {
+        if (currentWeapon === 3 && e.button === 2) {
+          zoomed = true;
+          FOV = weapons[3].zoomFOV;
+        }
+      });
+      window.addEventListener("mouseup", (e) => {
+        if (e.button === 2 && zoomed) {
+          zoomed = false;
+          FOV = baseFOV;
+        }
+      });
+      window.addEventListener("contextmenu", (e) => e.preventDefault());
       window.addEventListener("mousemove", (e) => {
         if (document.pointerLockElement === canvas) {
           player.dir += e.movementX * ROT_SPEED_MOUSE;
@@ -504,6 +587,7 @@
         update(dt);
         castAndDraw();
         drawMinimap();
+        drawWeaponHUD();
 
         // fps avg ~ each 250ms
         fpsAcc += 1 / dt;
