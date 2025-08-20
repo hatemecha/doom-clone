@@ -130,6 +130,7 @@
 
       <div id="hud">
         <div class="chip" id="fps">FPS: --</div>
+        <div class="chip" id="health">Vida: 100</div>
         <div class="chip">
           WASD para moverte · Mouse para mirar · Shift para correr · Esc para
           pausar
@@ -180,6 +181,7 @@
       const PITCH_LIMIT = Math.PI / 6; // ~30°
       const HEAD_BOB_FREQ = 7.5; // Hz aprox
       const HEAD_BOB_AMP = 6; // píxeles
+      const PLAYER_MAX_HEALTH = 100;
 
       // Colores de respaldo si no hay textura
       const WALL_COLORS = [
@@ -239,6 +241,7 @@
         dir: 0, // ángulo mirando
         velX: 0,
         velY: 0,
+        health: PLAYER_MAX_HEALTH,
       };
       // ===== Weapons =====
       const weapons = [
@@ -297,6 +300,7 @@
       let zoomed = false;
       let weaponCooldown = 0;
       let bullets = [];
+      let enemies = [];
       let shooting = false;
       let reloading = false;
       let reloadTimer = 0;
@@ -360,6 +364,7 @@
           y: player.y,
           dir: player.dir,
           speed: w.bulletSpeed,
+          damage: w.damage,
           range: w.range,
           traveled: 0,
         });
@@ -378,7 +383,30 @@
           }
           b.x = nx;
           b.y = ny;
+          for (const e of enemies) {
+            if (Math.hypot(e.x - b.x, e.y - b.y) < 0.3) {
+              e.health -= b.damage;
+              bullets.splice(i, 1);
+              break;
+            }
+          }
         }
+      }
+
+      function updateEnemies(dt) {
+        for (const e of enemies) {
+          const dx = player.x - e.x;
+          const dy = player.y - e.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < 0.5) {
+            player.health = Math.max(0, player.health - 20 * dt);
+          } else if (dist < 6) {
+            const nx = e.x + (dx / dist) * e.speed * dt;
+            const ny = e.y + (dy / dist) * e.speed * dt;
+            tryMoveEntity(e, nx, ny);
+          }
+        }
+        enemies = enemies.filter((e) => e.health > 0);
       }
 
       // ===== Input =====
@@ -432,6 +460,7 @@
           MAP = data.grid;
           spawn = data.player;
           resetPlayer();
+          spawnEnemies();
           canvas.requestPointerLock();
         } catch (e) {
           console.error("Error al cargar el mapa", e);
@@ -471,6 +500,24 @@
         player.x = spawn.x;
         player.y = spawn.y;
         player.dir = spawn.dir;
+        player.health = PLAYER_MAX_HEALTH;
+      }
+
+      function spawnEnemies() {
+        enemies = [];
+        const count = Math.max(5, Math.floor((MAP_W * MAP_H) / 64));
+        let tries = 0;
+        while (enemies.length < count && tries < count * 20) {
+          const x = Math.random() * MAP_W;
+          const y = Math.random() * MAP_H;
+          if (
+            at(Math.floor(x), Math.floor(y)) === 0 &&
+            Math.hypot(x - spawn.x, y - spawn.y) > 3
+          ) {
+            enemies.push({ x, y, health: 30, speed: 1.2 });
+          }
+          tries++;
+        }
       }
 
       // ===== Raycasting =====
@@ -585,6 +632,24 @@
             ctx.fillRect(x, drawStart, 1, drawEnd - drawStart);
           }
         }
+        drawEnemies3D();
+      }
+
+      function drawEnemies3D() {
+        for (const e of enemies) {
+          const dx = e.x - player.x;
+          const dy = e.y - player.y;
+          const dist = Math.hypot(dx, dy);
+          let angle = Math.atan2(dy, dx) - player.dir;
+          while (angle > Math.PI) angle -= Math.PI * 2;
+          while (angle < -Math.PI) angle += Math.PI * 2;
+          const fov2 = FOV / 2;
+          if (Math.abs(angle) > fov2) continue;
+          const size = Math.min(canvas.height, (canvas.height / dist) * 0.8);
+          const sx = canvas.width / 2 + Math.tan(angle) * (canvas.width / 2);
+          ctx.fillStyle = "red";
+          ctx.fillRect(sx - size / 2, canvas.height / 2 - size / 2, size, size);
+        }
       }
 
       function hexToRgb(hex) {
@@ -597,7 +662,7 @@
       }
 
       // ===== Movimiento y colisiones =====
-      function tryMove(nx, ny) {
+      function tryMoveEntity(obj, nx, ny) {
         const radius = 0.2; // radio de colisión
         // comprobar 4 esquinas alrededor del círculo
         if (at(Math.floor(nx - radius), Math.floor(ny - radius)) > 0)
@@ -608,9 +673,13 @@
           return false;
         if (at(Math.floor(nx + radius), Math.floor(ny + radius)) > 0)
           return false;
-        player.x = nx;
-        player.y = ny;
+        obj.x = nx;
+        obj.y = ny;
         return true;
+      }
+
+      function tryMove(nx, ny) {
+        return tryMoveEntity(player, nx, ny);
       }
 
       function update(dt) {
@@ -662,6 +731,7 @@
         }
 
         updateBullets(dt);
+        updateEnemies(dt);
       }
 
       // ===== Minimap =====
@@ -676,6 +746,12 @@
               v > 0 ? "rgba(255,255,255,.7)" : "rgba(255,255,255,.07)";
             mctx.fillRect(x * s, y * s, s, s);
           }
+        }
+        for (const e of enemies) {
+          mctx.fillStyle = "#f00";
+          mctx.beginPath();
+          mctx.arc(e.x * s, e.y * s, 3, 0, Math.PI * 2);
+          mctx.fill();
         }
         for (const b of bullets) {
           mctx.fillStyle = "#ff0";
@@ -702,6 +778,7 @@
       // ===== Loop =====
       let last = performance.now();
       let fpsEl = document.getElementById("fps");
+      let hpEl = document.getElementById("health");
       let fpsAcc = 0,
         fpsCount = 0,
         fpsDisp = 0;
@@ -724,6 +801,7 @@
           fpsCount = 0;
         }
         fpsEl.textContent = `FPS: ${fpsDisp}`;
+        hpEl.textContent = `Vida: ${Math.ceil(player.health)}`;
 
         requestAnimationFrame(frame);
       }
