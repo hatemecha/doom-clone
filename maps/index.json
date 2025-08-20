@@ -1,6 +1,32 @@
 {
   "maps": [
-    {"name": "Demo Map", "file": "demo.json"},
-    {"name": "Tiny Map", "file": "tiny.json"}
+    {
+      "name": "Demo Map",
+      "file": "demo.json"
+    },
+    {
+      "name": "Tiny Map",
+      "file": "tiny.json"
+    },
+    {
+      "name": "Maze 1",
+      "file": "maze1.json"
+    },
+    {
+      "name": "Maze 2",
+      "file": "maze2.json"
+    },
+    {
+      "name": "Maze 3",
+      "file": "maze3.json"
+    },
+    {
+      "name": "Maze 4",
+      "file": "maze4.json"
+    },
+    {
+      "name": "Maze 5",
+      "file": "maze5.json"
+    }
   ]
 }
