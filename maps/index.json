@@ -1,0 +1,6 @@
+{
+  "maps": [
+    {"name": "Demo Map", "file": "demo.json"},
+    {"name": "Tiny Map", "file": "tiny.json"}
+  ]
+}
