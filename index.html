@@ -142,13 +142,17 @@
           <strong>Mouse</strong> mirar · <strong>Shift</strong> correr ·
           <strong>R</strong> reiniciar · <strong>Esc</strong> liberar puntero.
         </p>
+        <label>
+          FOV: <span id="fovValue">90</span>°
+          <input id="fovRange" type="range" min="60" max="120" value="90" />
+        </label>
         <button id="startBtn">Iniciar</button>
       </div>
     </div>
 
     <script>
       // ===== Config =====
-      const FOV = Math.PI / 2; // 90° campo de visión (Quake-like)
+      let FOV = Math.PI / 2; // 90° campo de visión (Quake-like)
       const MOVE_SPEED = 3.2;
       const RUN_MULT = 1.8;
       const ROT_SPEED_MOUSE = 0.0022; // yaw
@@ -239,12 +243,18 @@
       // Pointer lock para mirar con mouse
       const overlay = document.getElementById("overlay");
       const startBtn = document.getElementById("startBtn");
+      const fovRange = document.getElementById("fovRange");
+      const fovValue = document.getElementById("fovValue");
       startBtn.addEventListener("click", () => {
         canvas.requestPointerLock();
       });
       document.addEventListener("pointerlockchange", () => {
         const locked = document.pointerLockElement === canvas;
         overlay.classList.toggle("hidden", locked);
+      });
+      fovRange.addEventListener("input", () => {
+        FOV = (fovRange.value * Math.PI) / 180;
+        fovValue.textContent = fovRange.value;
       });
       window.addEventListener("mousemove", (e) => {
         if (document.pointerLockElement === canvas) {
