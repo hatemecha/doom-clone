@@ -525,6 +525,7 @@
         if (!MAP_W || !MAP_H) return;
         const w = canvas.width,
           h = canvas.height;
+        const depthBuffer = new Array(w);
 
         // cielo y piso
         const skyGrad = ctx.createLinearGradient(0, 0, 0, h / 2);
@@ -625,6 +626,7 @@
           const b = Math.min(255, Math.floor(rgb.b * shade * dim));
           ctx.fillStyle = `rgb(${r},${g},${b})`;
           ctx.fillRect(x, drawStart, 1, drawEnd - drawStart);
+          depthBuffer[x] = perpWallDist;
 
           // pseudo-textura: franjas sutiles
           if (((mapX + mapY) & 1) === 0 && x % 3 === 0) {
@@ -632,23 +634,34 @@
             ctx.fillRect(x, drawStart, 1, drawEnd - drawStart);
           }
         }
-        drawEnemies3D();
+        drawEnemies3D(depthBuffer);
       }
 
-      function drawEnemies3D() {
-        for (const e of enemies) {
+      function drawEnemies3D(depthBuffer) {
+        const ordered = enemies
+          .map((e) => ({ ...e, dist: Math.hypot(e.x - player.x, e.y - player.y) }))
+          .sort((a, b) => b.dist - a.dist);
+        for (const e of ordered) {
           const dx = e.x - player.x;
           const dy = e.y - player.y;
-          const dist = Math.hypot(dx, dy);
+          const dist = e.dist;
           let angle = Math.atan2(dy, dx) - player.dir;
           while (angle > Math.PI) angle -= Math.PI * 2;
           while (angle < -Math.PI) angle += Math.PI * 2;
           const fov2 = FOV / 2;
           if (Math.abs(angle) > fov2) continue;
           const size = Math.min(canvas.height, (canvas.height / dist) * 0.8);
-          const sx = canvas.width / 2 + Math.tan(angle) * (canvas.width / 2);
-          ctx.fillStyle = "red";
-          ctx.fillRect(sx - size / 2, canvas.height / 2 - size / 2, size, size);
+          const sx =
+            canvas.width / 2 +
+            (Math.tan(angle) / Math.tan(FOV / 2)) * (canvas.width / 2);
+          const startX = Math.floor(sx - size / 2);
+          const endX = Math.floor(sx + size / 2);
+          for (let x = startX; x < endX; x++) {
+            if (x < 0 || x >= depthBuffer.length) continue;
+            if (dist >= depthBuffer[x]) continue;
+            ctx.fillStyle = "red";
+            ctx.fillRect(x, canvas.height / 2 - size / 2, 1, size);
+          }
         }
       }
 
