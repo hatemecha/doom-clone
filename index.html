@@ -238,13 +238,75 @@
       };
       // ===== Weapons =====
       const weapons = [
-        { name: "Puños", damage: 5, range: 1, color: "#999" },
-        { name: "Pistola", damage: 10, range: 6, color: "#ccc" },
-        { name: "Escopeta", damage: 25, range: 5, color: "#b5651d" },
-        { name: "Sniper", damage: 50, range: 20, color: "#3af", zoomFOV: Math.PI / 8 },
+        {
+          name: "Puños",
+          damage: 5,
+          range: 1,
+          color: "#999",
+          fireDelay: 0.5,
+          bulletSpeed: 15,
+          clipSize: 1,
+          loaded: 1,
+          ammo: 0,
+          reloadTime: 0,
+          noAmmo: true,
+        },
+        {
+          name: "Pistola",
+          damage: 10,
+          range: 6,
+          color: "#ccc",
+          fireDelay: 0.3,
+          bulletSpeed: 25,
+          clipSize: 8,
+          loaded: 8,
+          ammo: 24,
+          reloadTime: 1.2,
+        },
+        {
+          name: "Escopeta",
+          damage: 25,
+          range: 5,
+          color: "#b5651d",
+          fireDelay: 1.0,
+          bulletSpeed: 20,
+          clipSize: 2,
+          loaded: 2,
+          ammo: 18,
+          reloadTime: 1.5,
+        },
+        {
+          name: "Sniper",
+          damage: 50,
+          range: 20,
+          color: "#3af",
+          fireDelay: 1.5,
+          bulletSpeed: 40,
+          clipSize: 1,
+          loaded: 1,
+          ammo: 4,
+          reloadTime: 2.0,
+          zoomFOV: Math.PI / 8,
+        },
       ];
       let currentWeapon = 0;
       let zoomed = false;
+      let weaponCooldown = 0;
+      let bullets = [];
+      let shooting = false;
+      let reloading = false;
+      let reloadTimer = 0;
+      let weaponAnim = 0;
+
+      function equipWeapon(i) {
+        currentWeapon = i;
+        zoomed = false;
+        FOV = baseFOV;
+        reloading = false;
+        weaponCooldown = 0;
+        weaponAnim = 0;
+        shooting = false;
+      }
 
       const weaponCanvas = document.getElementById("weaponHud");
       const wctx = weaponCanvas.getContext("2d");
@@ -256,50 +318,82 @@
         wctx.fillStyle = "rgba(0,0,0,0.5)";
         wctx.fillRect(0, 0, w, h);
         const weapon = weapons[currentWeapon];
+        const offset = Math.sin(weaponAnim * Math.PI) * 20;
         wctx.fillStyle = weapon.color;
-        wctx.fillRect(w / 2 - 40, h - 80, 80, 80);
+        wctx.fillRect(w / 2 - 40, h - 80 + offset, 80, 80);
         wctx.fillStyle = "#fff";
         wctx.textAlign = "center";
         wctx.font = "14px sans-serif";
         wctx.fillText(weapon.name, w / 2, 20);
+        if (!weapon.noAmmo)
+          wctx.fillText(`${weapon.loaded}/${weapon.ammo}`, w / 2, 40);
       }
 
       drawWeaponHUD();
+
+      function startReload() {
+        const w = weapons[currentWeapon];
+        if (w.noAmmo || reloading || w.loaded >= w.clipSize || w.ammo <= 0)
+          return;
+        reloading = true;
+        reloadTimer = w.reloadTime;
+        weaponAnim = 1;
+      }
+
+      function shoot() {
+        const w = weapons[currentWeapon];
+        if (!w.noAmmo) {
+          if (w.loaded <= 0) {
+            startReload();
+            return;
+          }
+          w.loaded--;
+        }
+        weaponCooldown = w.fireDelay;
+        weaponAnim = 1;
+        bullets.push({
+          x: player.x,
+          y: player.y,
+          dir: player.dir,
+          speed: w.bulletSpeed,
+          range: w.range,
+          traveled: 0,
+        });
+      }
+
+      function updateBullets(dt) {
+        for (let i = bullets.length - 1; i >= 0; i--) {
+          const b = bullets[i];
+          const nx = b.x + Math.cos(b.dir) * b.speed * dt;
+          const ny = b.y + Math.sin(b.dir) * b.speed * dt;
+          const dist = Math.hypot(nx - b.x, ny - b.y);
+          b.traveled += dist;
+          if (at(Math.floor(nx), Math.floor(ny)) > 0 || b.traveled > b.range) {
+            bullets.splice(i, 1);
+            continue;
+          }
+          b.x = nx;
+          b.y = ny;
+        }
+      }
 
       // ===== Input =====
       const keys = new Set();
       window.addEventListener("keydown", (e) => {
         keys.add(e.code);
-        if (e.code === "KeyR") resetPlayer();
-        if (e.code === "Digit0") {
-          currentWeapon = 0;
-          zoomed = false;
-          FOV = baseFOV;
-        }
-        if (e.code === "Digit1") {
-          currentWeapon = 1;
-          zoomed = false;
-          FOV = baseFOV;
-        }
-        if (e.code === "Digit2") {
-          currentWeapon = 2;
-          zoomed = false;
-          FOV = baseFOV;
-        }
-        if (e.code === "Digit3") {
-          currentWeapon = 3;
-          zoomed = false;
-          FOV = baseFOV;
-        }
+        if (e.code === "KeyR") startReload();
+        if (e.code === "Digit0") equipWeapon(0);
+        if (e.code === "Digit1") equipWeapon(1);
+        if (e.code === "Digit2") equipWeapon(2);
+        if (e.code === "Digit3") equipWeapon(3);
       });
       window.addEventListener("keyup", (e) => keys.delete(e.code));
 
       window.addEventListener("wheel", (e) => {
-        currentWeapon =
+        equipWeapon(
           (currentWeapon + (e.deltaY > 0 ? 1 : -1) + weapons.length) %
-          weapons.length;
-        zoomed = false;
-        FOV = baseFOV;
+            weapons.length
+        );
       });
 
       // Pointer lock para mirar con mouse
@@ -349,12 +443,14 @@
         fovValue.textContent = fovRange.value;
       });
       window.addEventListener("mousedown", (e) => {
+        if (e.button === 0) shooting = true;
         if (currentWeapon === 3 && e.button === 2) {
           zoomed = true;
           FOV = weapons[3].zoomFOV;
         }
       });
       window.addEventListener("mouseup", (e) => {
+        if (e.button === 0) shooting = false;
         if (e.button === 2 && zoomed) {
           zoomed = false;
           FOV = baseFOV;
@@ -515,6 +611,24 @@
 
       function update(dt) {
         if (!MAP_W || !MAP_H) return;
+
+        weaponCooldown = Math.max(0, weaponCooldown - dt);
+        weaponAnim = Math.max(0, weaponAnim - dt * 4);
+
+        if (reloading) {
+          reloadTimer -= dt;
+          if (reloadTimer <= 0) {
+            const w = weapons[currentWeapon];
+            const need = w.clipSize - w.loaded;
+            const load = Math.min(need, w.ammo);
+            w.loaded += load;
+            w.ammo -= load;
+            reloading = false;
+          }
+        } else if (shooting && weaponCooldown <= 0) {
+          shoot();
+        }
+
         const forward =
           keys.has("KeyW") || keys.has("ArrowUp")
             ? 1
@@ -542,6 +656,8 @@
         } else {
           tryMove(player.x, player.y + moveY);
         }
+
+        updateBullets(dt);
       }
 
       // ===== Minimap =====
@@ -556,6 +672,12 @@
               v > 0 ? "rgba(255,255,255,.7)" : "rgba(255,255,255,.07)";
             mctx.fillRect(x * s, y * s, s, s);
           }
+        }
+        for (const b of bullets) {
+          mctx.fillStyle = "#ff0";
+          mctx.beginPath();
+          mctx.arc(b.x * s, b.y * s, 2, 0, Math.PI * 2);
+          mctx.fill();
         }
         // player
         mctx.fillStyle = "#00d4ff";
