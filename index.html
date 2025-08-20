@@ -4,124 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DOOM-like Web Raycaster</title>
-    <style>
-      html,
-      body {
-        height: 100%;
-        margin: 0;
-        background: #000;
-        color: #eee;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu,
-          Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji",
-          "Segoe UI Emoji";
-      }
-      #hud {
-        position: absolute;
-        top: 12px;
-        left: 12px;
-        right: 12px;
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        pointer-events: none;
-      }
-      .chip {
-        background: rgba(0, 0, 0, 0.45);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        padding: 8px 12px;
-        border-radius: 999px;
-        font-size: 12px;
-        backdrop-filter: blur(6px);
-      }
-      #help {
-        position: absolute;
-        bottom: 12px;
-        left: 12px;
-        right: 12px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-      #help .chip {
-        pointer-events: auto;
-      }
-      #container {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        width: 800px;
-        height: 600px;
-        transform: translate(-50%, -50%);
-        border: 2px solid #fff;
-        background: #000;
-        overflow: hidden;
-      }
-      #game {
-        width: 100%;
-        height: 100%;
-        display: block;
-      }
-      #overlay {
-        position: absolute;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        background: radial-gradient(
-          ellipse at center,
-          rgba(0, 0, 0, 0.35),
-          rgba(0, 0, 0, 0.8)
-        );
-        color: #fff;
-        font-weight: 600;
-        letter-spacing: 0.3px;
-        text-align: center;
-      }
-      #overlay.hidden {
-        display: none;
-      }
-      #overlay .card {
-        max-width: 640px;
-        padding: 24px;
-        border-radius: 16px;
-        background: rgba(0, 0, 0, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        backdrop-filter: blur(8px);
-      }
-      #overlay button {
-        pointer-events: auto;
-        margin-top: 12px;
-        padding: 10px 16px;
-        border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        background: #1e1e1e;
-        color: #fff;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      #minimap {
-        position: absolute;
-        top: 12px;
-        right: 12px;
-        width: 160px;
-        height: 160px;
-        border-radius: 12px;
-        overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(0, 0, 0, 0.35);
-      }
-      #weaponHud {
-        position: absolute;
-        bottom: 0;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 320px;
-        height: 100px;
-        pointer-events: none;
-      }
-      canvas {
-        image-rendering: pixelated;
-      }
-    </style>
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div id="container">
@@ -170,7 +53,8 @@
       </div>
     </div>
 
-    <script>
+    <script type="module">
+      import { fastSin, fastCos, tryMoveEntity, castRay } from "./engine.js";
       // ===== Config =====
       let FOV = Math.PI / 2; // 90° campo de visión (Quake-like)
       let baseFOV = FOV;
@@ -196,7 +80,7 @@
         // Mapa 2D (grid de celdas). 0 = vacío; >0 = pared (tipo/color)
         let MAP_W = 0,
           MAP_H = 0;
-        let MAP = [];
+        let MAP = new Uint8Array();
         let spawn = { x: 0, y: 0, dir: 0 };
 
       const TEX_SIZE = 64;
@@ -373,8 +257,8 @@
       function updateBullets(dt) {
         for (let i = bullets.length - 1; i >= 0; i--) {
           const b = bullets[i];
-          const nx = b.x + Math.cos(b.dir) * b.speed * dt;
-          const ny = b.y + Math.sin(b.dir) * b.speed * dt;
+          const nx = b.x + fastCos(b.dir) * b.speed * dt;
+          const ny = b.y + fastSin(b.dir) * b.speed * dt;
           const dist = Math.hypot(nx - b.x, ny - b.y);
           b.traveled += dist;
           if (at(Math.floor(nx), Math.floor(ny)) > 0 || b.traveled > b.range) {
@@ -403,7 +287,7 @@
           } else if (dist < 6) {
             const nx = e.x + (dx / dist) * e.speed * dt;
             const ny = e.y + (dy / dist) * e.speed * dt;
-            tryMoveEntity(e, nx, ny);
+            tryMoveEntity(MAP, MAP_W, MAP_H, e, nx, ny);
           }
         }
         enemies = enemies.filter((e) => e.health > 0);
@@ -451,14 +335,26 @@
       }
       loadMapList();
 
-      startBtn.addEventListener("click", async () => {
-        try {
-          const res = await fetch(`maps/${mapSelect.value}`);
-          const data = await res.json();
+      async function loadMap(path) {
+        const res = await fetch(path);
+        const data = await res.json();
+        if (data.layers) {
+          const layer = data.layers.find((l) => l.type === "tilelayer");
           MAP_W = data.width;
           MAP_H = data.height;
-          MAP = data.grid;
+          MAP = Uint8Array.from(layer.data);
+          spawn = data.player || { x: 1.5, y: 1.5, dir: 0 };
+        } else {
+          MAP_W = data.width;
+          MAP_H = data.height;
+          MAP = Uint8Array.from(data.grid);
           spawn = data.player;
+        }
+      }
+
+      startBtn.addEventListener("click", async () => {
+        try {
+          await loadMap(`maps/${mapSelect.value}`);
           resetPlayer();
           spawnEnemies();
           canvas.requestPointerLock();
@@ -540,8 +436,8 @@
         ctx.fillRect(0, h / 2, w, h / 2);
 
         // parámetros de cámara
-        const dirX = Math.cos(player.dir),
-          dirY = Math.sin(player.dir);
+        const dirX = fastCos(player.dir),
+          dirY = fastSin(player.dir);
         const planeMag = Math.tan(FOV / 2);
         const planeX = -dirY * planeMag;
         const planeY = dirX * planeMag;
@@ -552,61 +448,10 @@
           const rayDirX = dirX + planeX * cameraX;
           const rayDirY = dirY + planeY * cameraX;
 
-          // mapa grid
-          let mapX = Math.floor(player.x);
-          let mapY = Math.floor(player.y);
-
-          // longitud de rayo a la próxima x/y
-          const deltaDistX = Math.abs(1 / (rayDirX || 1e-6));
-          const deltaDistY = Math.abs(1 / (rayDirY || 1e-6));
-
-          let stepX, stepY;
-          let sideDistX, sideDistY;
-
-          if (rayDirX < 0) {
-            stepX = -1;
-            sideDistX = (player.x - mapX) * deltaDistX;
-          } else {
-            stepX = 1;
-            sideDistX = (mapX + 1.0 - player.x) * deltaDistX;
-          }
-          if (rayDirY < 0) {
-            stepY = -1;
-            sideDistY = (player.y - mapY) * deltaDistY;
-          } else {
-            stepY = 1;
-            sideDistY = (mapY + 1.0 - player.y) * deltaDistY;
-          }
-
-          let hit = 0,
-            side = 0,
-            texId = 1;
-          // DDA
-          for (let i = 0; i < 64; i++) {
-            if (sideDistX < sideDistY) {
-              sideDistX += deltaDistX;
-              mapX += stepX;
-              side = 0;
-            } else {
-              sideDistY += deltaDistY;
-              mapY += stepY;
-              side = 1;
-            }
-            hit = at(mapX, mapY);
-            if (hit > 0) {
-              texId = hit;
-              break;
-            }
-          }
-
-          // distancia perpendicular para evitar fisheye
-          let perpWallDist;
-          if (side === 0)
-            perpWallDist =
-              (mapX - player.x + (1 - stepX) / 2) / (rayDirX || 1e-6);
-          else
-            perpWallDist =
-              (mapY - player.y + (1 - stepY) / 2) / (rayDirY || 1e-6);
+          const ray = castRay(MAP, MAP_W, MAP_H, player.x, player.y, rayDirX, rayDirY);
+          const perpWallDist = ray.dist;
+          const texId = ray.texId;
+          const side = ray.side;
 
           // altura de la línea
           const lineHeight = Math.max(1, Math.floor(h / perpWallDist));
@@ -629,7 +474,7 @@
           depthBuffer[x] = perpWallDist;
 
           // pseudo-textura: franjas sutiles
-          if (((mapX + mapY) & 1) === 0 && x % 3 === 0) {
+          if (((ray.mapX + ray.mapY) & 1) === 0 && x % 3 === 0) {
             ctx.fillStyle = `rgba(0,0,0,0.15)`;
             ctx.fillRect(x, drawStart, 1, drawEnd - drawStart);
           }
@@ -675,24 +520,8 @@
       }
 
       // ===== Movimiento y colisiones =====
-      function tryMoveEntity(obj, nx, ny) {
-        const radius = 0.2; // radio de colisión
-        // comprobar 4 esquinas alrededor del círculo
-        if (at(Math.floor(nx - radius), Math.floor(ny - radius)) > 0)
-          return false;
-        if (at(Math.floor(nx + radius), Math.floor(ny - radius)) > 0)
-          return false;
-        if (at(Math.floor(nx - radius), Math.floor(ny + radius)) > 0)
-          return false;
-        if (at(Math.floor(nx + radius), Math.floor(ny + radius)) > 0)
-          return false;
-        obj.x = nx;
-        obj.y = ny;
-        return true;
-      }
-
       function tryMove(nx, ny) {
-        return tryMoveEntity(player, nx, ny);
+        return tryMoveEntity(MAP, MAP_W, MAP_H, player, nx, ny);
       }
 
       function update(dt) {
@@ -731,17 +560,14 @@
           MOVE_SPEED *
           (keys.has("ShiftLeft") || keys.has("ShiftRight") ? RUN_MULT : 1);
 
-        const dirX = Math.cos(player.dir),
-          dirY = Math.sin(player.dir);
+        const dirX = fastCos(player.dir),
+          dirY = fastSin(player.dir);
         const moveX = (dirX * forward + -dirY * strafe) * speed * dt;
         const moveY = (dirY * forward + dirX * strafe) * speed * dt;
 
         // intentar mover en dos ejes para deslizar en paredes
-        if (!tryMove(player.x + moveX, player.y)) {
-          tryMove(player.x, player.y + moveY);
-        } else {
-          tryMove(player.x, player.y + moveY);
-        }
+        tryMove(player.x + moveX, player.y);
+        tryMove(player.x, player.y + moveY);
 
         updateBullets(dt);
         updateEnemies(dt);
@@ -779,8 +605,8 @@
         mctx.fill();
 
         // direction
-        const dx = Math.cos(player.dir),
-          dy = Math.sin(player.dir);
+        const dx = fastCos(player.dir),
+          dy = fastSin(player.dir);
         mctx.strokeStyle = "#00d4ff";
         mctx.beginPath();
         mctx.moveTo(player.x * s, player.y * s);
